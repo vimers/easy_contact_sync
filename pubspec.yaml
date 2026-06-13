@@ -1,0 +1,51 @@
+name: easy_contact_sync
+description: An open-source CardDAV contact sync app for Android and iOS.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.5.0
+
+  # HTTP & XML
+  http: ^1.2.0
+  xml: ^6.5.0
+
+  # Local contacts
+  flutter_contacts: ^1.1.7
+
+  # Encrypted storage
+  flutter_secure_storage: ^9.2.0
+
+  # Database
+  sqflite: ^2.3.0
+  path: ^1.9.0
+
+  # Background tasks
+  workmanager: ^0.5.2
+
+  # Notifications
+  flutter_local_notifications: ^17.2.0
+
+  # i18n
+  intl: ^0.19.0
+
+  # Routing
+  go_router: ^14.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  generate: true
+  uses-material-design: true
