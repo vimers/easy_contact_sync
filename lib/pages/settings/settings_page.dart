@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/accounts_provider.dart';
+import '../../providers/error_log_provider.dart';
 import '../../providers/settings_provider.dart';
 import 'account_edit_page.dart';
 import 'about_page.dart';
+import 'error_log_page.dart';
 
 /// Main settings page.
 class SettingsPage extends ConsumerWidget {
@@ -55,8 +57,42 @@ class SettingsPage extends ConsumerWidget {
                 ],
               );
             },
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('Error: $e')),
+            loading: () => Column(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.add_circle_outline),
+                  title: const Text('Add Account'),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const AccountEditPage()),
+                    );
+                  },
+                ),
+              ],
+            ),
+            error: (e, _) => Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text('Error: $e'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.add_circle_outline),
+                  title: const Text('Add Account'),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const AccountEditPage()),
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
 
           const Divider(),
@@ -64,6 +100,12 @@ class SettingsPage extends ConsumerWidget {
           // Sync frequency
           const _SectionHeader(title: 'Sync Settings'),
           _SyncFrequencyTile(),
+
+          const Divider(),
+
+          // Diagnostics
+          const _SectionHeader(title: 'Diagnostics'),
+          const _ErrorLogTile(),
 
           const Divider(),
 
@@ -180,5 +222,37 @@ class _SyncFrequencyTile extends ConsumerWidget {
       0 => 'Manual only',
       _ => 'Every $minutes minutes',
     };
+  }
+}
+
+/// Settings entry for the persisted error log, with a red badge when there are
+/// unread entries.
+class _ErrorLogTile extends ConsumerWidget {
+  const _ErrorLogTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unread = ref.watch(
+      errorLogProvider.select((errors) =>
+          errors.where((e) => !e.isRead).length),
+    );
+
+    return ListTile(
+      leading: const Icon(Icons.bug_report_outlined),
+      title: const Text('Error Log'),
+      subtitle: Text(unread > 0 ? '$unread unread error(s)' : 'No new errors'),
+      trailing: unread > 0
+          ? Badge(
+              backgroundColor: Colors.red,
+              label: Text('$unread'),
+            )
+          : const Icon(Icons.chevron_right),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ErrorLogPage()),
+        );
+      },
+    );
   }
 }

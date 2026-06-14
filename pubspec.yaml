@@ -27,25 +27,42 @@ dependencies:
 
   # Database
   sqflite: ^2.3.0
+  sqflite_common_ffi: ^2.3.0
+  # Pin sqlite3 to 2.x: 3.x uses Dart native assets and downloads a prebuilt
+  # .so from GitHub release assets, which is unreachable on some networks.
+  sqlite3: ^2.0.0
   path: ^1.9.0
 
   # Background tasks
-  workmanager: ^0.5.2
+  workmanager: ^0.8.0
 
   # Notifications
   flutter_local_notifications: ^17.2.0
 
   # i18n
-  intl: ^0.19.0
+  intl: ^0.20.2
 
   # Routing
   go_router: ^14.2.0
+  mobile_scanner: ^7.2.0
+  lpinyin: ^2.0.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   generate: true
   uses-material-design: true
+  assets:
+    - assets/
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/logo_1024.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/logo_1024.png"
+  remove_alpha_ios: true

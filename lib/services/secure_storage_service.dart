@@ -1,47 +1,145 @@
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:path/path.dart' as p;
 
 /// Service for encrypted storage of CardDAV credentials.
 ///
 /// Android: EncryptedSharedPreferences + Android Keystore (AES256)
 /// iOS: Keychain Services (kSecAttrAccessible: whenUnlockedThisDeviceOnly)
+/// Linux/Windows desktop: Falls back to file-based storage (for development)
 class SecureStorageService {
   static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
     iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
   );
 
+  // In-memory cache for desktop fallback
+  final Map<String, String> _fileCache = {};
+  bool _useFallback = false;
+
+  String get _fallbackDir {
+    final home = Platform.environment['HOME'] ?? '/tmp';
+    return p.join(home, '.easycontactsync');
+  }
+
+  String _fallbackPath() => p.join(_fallbackDir, 'credentials.json');
+
   // Key prefixes to namespace per account
   static String _passwordKey(int accountId) => 'account_${accountId}_password';
   static String _syncTokenKey(int accountId) => 'account_${accountId}_sync_token';
 
+  Future<void> _initFallback() async {
+    if (_fileCache.isNotEmpty) return;
+    final file = File(_fallbackPath());
+    if (await file.exists()) {
+      final content = await file.readAsString();
+      final Map<String, dynamic> data = jsonDecode(content);
+      data.forEach((key, value) {
+        _fileCache[key] = value.toString();
+      });
+    }
+  }
+
+  Future<void> _saveFallback() async {
+    final dir = Directory(_fallbackDir);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    final file = File(_fallbackPath());
+    await file.writeAsString(jsonEncode(_fileCache));
+  }
+
+  Future<void> _write(String key, String value) async {
+    if (!Platform.isLinux && !Platform.isWindows) {
+      try {
+        await _storage.write(key: key, value: value);
+        return;
+      } catch (_) {
+        _useFallback = true;
+      }
+    }
+
+    // Try secure storage first on Linux too
+    if (!_useFallback) {
+      try {
+        await _storage.write(key: key, value: value);
+        return;
+      } catch (_) {
+        _useFallback = true;
+      }
+    }
+
+    // Fallback: file-based storage
+    await _initFallback();
+    _fileCache[key] = value;
+    await _saveFallback();
+  }
+
+  Future<String?> _read(String key) async {
+    if (!_useFallback && !Platform.isLinux && !Platform.isWindows) {
+      try {
+        return await _storage.read(key: key);
+      } catch (_) {
+        _useFallback = true;
+      }
+    }
+
+    if (!_useFallback) {
+      try {
+        return await _storage.read(key: key);
+      } catch (_) {
+        _useFallback = true;
+      }
+    }
+
+    await _initFallback();
+    return _fileCache[key];
+  }
+
+  Future<void> _delete(String key) async {
+    if (!_useFallback) {
+      try {
+        await _storage.delete(key: key);
+        if (!_useFallback) return;
+      } catch (_) {
+        _useFallback = true;
+      }
+    }
+
+    await _initFallback();
+    _fileCache.remove(key);
+    await _saveFallback();
+  }
+
   /// Save encrypted password for an account.
   Future<void> savePassword(int accountId, String password) async {
-    await _storage.write(key: _passwordKey(accountId), value: password);
+    await _write(_passwordKey(accountId), password);
   }
 
   /// Read encrypted password for an account.
   Future<String?> getPassword(int accountId) async {
-    return await _storage.read(key: _passwordKey(accountId));
+    return await _read(_passwordKey(accountId));
   }
 
   /// Delete stored password for an account.
   Future<void> deletePassword(int accountId) async {
-    await _storage.delete(key: _passwordKey(accountId));
+    await _delete(_passwordKey(accountId));
   }
 
   /// Save sync token (used for incremental CardDAV sync).
   Future<void> saveSyncToken(int accountId, String token) async {
-    await _storage.write(key: _syncTokenKey(accountId), value: token);
+    await _write(_syncTokenKey(accountId), token);
   }
 
   /// Read sync token.
   Future<String?> getSyncToken(int accountId) async {
-    return await _storage.read(key: _syncTokenKey(accountId));
+    return await _read(_syncTokenKey(accountId));
   }
 
   /// Delete sync token.
   Future<void> deleteSyncToken(int accountId) async {
-    await _storage.delete(key: _syncTokenKey(accountId));
+    await _delete(_syncTokenKey(accountId));
   }
 
   /// Delete all stored data for an account.
@@ -52,6 +150,15 @@ class SecureStorageService {
 
   /// Delete all stored credentials (e.g., on logout).
   Future<void> deleteAll() async {
-    await _storage.deleteAll();
+    if (!_useFallback) {
+      try {
+        await _storage.deleteAll();
+        return;
+      } catch (_) {
+        _useFallback = true;
+      }
+    }
+    _fileCache.clear();
+    await _saveFallback();
   }
 }

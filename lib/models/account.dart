@@ -30,14 +30,17 @@ class Account {
     );
   }
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
+  Map<String, dynamic> toMap({bool excludeId = false}) {
+    final map = <String, dynamic>{
       'server_url': serverUrl,
       'username': username,
       'addressbook_name': addressbookName,
       'created_at': createdAt.toIso8601String(),
     };
+    if (!excludeId && id != null) {
+      map['id'] = id;
+    }
+    return map;
   }
 
   factory Account.fromMap(Map<String, dynamic> map) {

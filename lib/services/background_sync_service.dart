@@ -4,6 +4,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../models/account.dart';
 import '../models/sync_record.dart';
 import 'database_service.dart';
+import 'error_logger_service.dart';
 import 'secure_storage_service.dart';
 import 'local_contact_service.dart';
 import 'sync/sync_engine.dart';
@@ -118,13 +119,23 @@ void _callbackDispatcher() {
         final result = await syncEngine.sync(account);
 
         if (result.status == SyncStatus.failure) {
-          // Show error notification (via isolate port or similar)
-          // Note: notifications from background are platform-specific
+          // Persist the failure so it shows up in Settings → Error Log.
+          // (Runs in a separate isolate; the write lands in the shared DB and
+          //  surfaces in the UI on the next load.)
+          ErrorLoggerService.instance.log(
+            source: 'background',
+            error: result.errorMessage ?? 'Sync failed for ${account.username}',
+          );
         }
       }
 
       return true;
-    } catch (_) {
+    } catch (e, st) {
+      ErrorLoggerService.instance.log(
+        source: 'background',
+        error: e,
+        stackTrace: st,
+      );
       return false;
     }
   });

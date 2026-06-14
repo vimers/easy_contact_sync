@@ -44,21 +44,31 @@ class AccountNotifier extends StateNotifier<AsyncValue<List<Account>>> {
     required String username,
     required String password,
   }) async {
-    final account = Account(
-      serverUrl: serverUrl,
-      username: username,
-      createdAt: DateTime.now(),
-    );
-    final id = await _db.insertAccount(account.toMap());
-    final created = account.copyWith(id: id);
+    try {
+      final account = Account(
+        serverUrl: serverUrl,
+        username: username,
+        createdAt: DateTime.now(),
+      );
+      print('DEBUG addAccount: inserting into DB...');
+      final id = await _db.insertAccount(account.toMap(excludeId: true));
+      print('DEBUG addAccount: got id=$id');
+      final created = account.copyWith(id: id);
 
-    // Store password securely
-    final secureStorage = _ref.read(secureStorageProvider);
-    await secureStorage.savePassword(id, password);
+      // Store password securely
+      print('DEBUG addAccount: saving password...');
+      final secureStorage = _ref.read(secureStorageProvider);
+      await secureStorage.savePassword(id, password);
+      print('DEBUG addAccount: password saved');
 
-    _ref.invalidate(accountsProvider);
-    await _loadAccounts();
-    return created;
+      _ref.invalidate(accountsProvider);
+      await _loadAccounts();
+      return created;
+    } catch (e, st) {
+      print('DEBUG addAccount ERROR: $e');
+      print('DEBUG addAccount STACK: $st');
+      rethrow;
+    }
   }
 
   Future<void> deleteAccount(int id) async {

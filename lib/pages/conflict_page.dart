@@ -235,6 +235,10 @@ class _ConflictCard extends StatelessWidget {
         children: [
           Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
+          if ((contact.organization ?? '').isNotEmpty)
+            Text('Org: ${contact.organization}', style: const TextStyle(fontSize: 12)),
+          if ((contact.title ?? '').isNotEmpty)
+            Text('Title: ${contact.title}', style: const TextStyle(fontSize: 12)),
           if (contact.phones.isNotEmpty)
             Text('Tel: ${contact.phones.first.number}', style: const TextStyle(fontSize: 12)),
           if (contact.emails.isNotEmpty)

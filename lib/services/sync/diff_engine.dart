@@ -14,88 +14,119 @@ class DiffEngine {
   /// [localContacts] are from the device address book.
   /// [remoteContacts] are from the CardDAV server.
   /// [accountId] is the CardDAV account ID for looking up sync history.
+  /// [localToRemoteUid] maps a local contact id to its remote UID. Contacts
+  /// pulled from the server get a fresh device id, so without this map they
+  /// could never be matched back to their remote counterpart — which caused the
+  /// duplicate-creation spiral.
   Future<List<DiffResult>> computeDiff({
     required List<Contact> localContacts,
     required List<Contact> remoteContacts,
     required int accountId,
+    Map<String, String>? localToRemoteUid,
   }) async {
     final results = <DiffResult>[];
+    final l2r = localToRemoteUid ?? <String, String>{};
 
-    // Load previous sync metadata to know what was synced before
-    final syncMetaRows = _db != null
-        ? await _db!.getSyncMetaForAccount(accountId)
-        : <Map<String, dynamic>>[];
+    // Load previous sync metadata (keyed by remote uid).
     final syncMetaMap = <String, SyncMeta>{};
-    for (final row in syncMetaRows) {
-      final meta = SyncMeta.fromMap(row);
-      syncMetaMap[meta.uid] = meta;
+    if (_db != null) {
+      for (final row in await _db!.getSyncMetaForAccount(accountId)) {
+        final meta = SyncMeta.fromMap(row);
+        syncMetaMap[meta.uid] = meta;
+      }
     }
 
-    // Build lookup maps
-    final localByUid = <String, Contact>{};
+    // Index local contacts by their *remote* uid. For pushed contacts the
+    // remote uid equals the local id (the engine writes it that way); for
+    // pulled contacts it comes from the uid map.
+    final localByRuid = <String, Contact>{};
     for (final c in localContacts) {
-      if (c.uid != null) localByUid[c.uid!] = c;
+      final cuid = c.uid;
+      if (cuid == null || cuid.isEmpty) continue;
+      final ruid = l2r[cuid] ?? cuid;
+      localByRuid.putIfAbsent(ruid, () => c);
     }
 
     final remoteByUid = <String, Contact>{};
     for (final c in remoteContacts) {
-      if (c.uid != null) remoteByUid[c.uid!] = c;
+      if (c.uid != null && c.uid!.isNotEmpty) {
+        remoteByUid.putIfAbsent(c.uid!, () => c);
+      }
     }
 
-    // All UIDs we need to check
-    final allUids = <String>{}
-      ..addAll(localByUid.keys)
-      ..addAll(remoteByUid.keys)
-      ..addAll(syncMetaMap.keys);
+    final matchedRemoteUids = <String>{};
 
-    for (final uid in allUids) {
-      final local = localByUid[uid];
-      final remote = remoteByUid[uid];
-      final prevMeta = syncMetaMap[uid];
+    // Phase 1 — uid-linked pairs.
+    for (final ruid in localByRuid.keys.toList()) {
+      final remote = remoteByUid[ruid];
+      if (remote == null) continue;
+      matchedRemoteUids.add(ruid);
+      results.add(_classifyPair(ruid, localByRuid[ruid]!, remote, syncMetaMap[ruid]));
+    }
 
-      final wasSyncedBefore = prevMeta != null;
+    // Phase 2 — normalized match fallback: pair uid-unmatched locals with
+    // unmatched remotes that represent the same person (same name + phone
+    // digits + emails), tolerating the formatting drift the vCard/address-book
+    // round-trip introduces. A matched pair ⇒ identical (no push, no pull),
+    // which is what stops the duplicate spiral; the engine records the uid
+    // linkage so later syncs match directly.
+    final unmatchedRemote = remoteByUid.entries
+        .where((e) => !matchedRemoteUids.contains(e.key))
+        .toList();
+    final remoteUidByMatch = <String, String>{}; // matchKey → remote uid
+    for (final e in unmatchedRemote) {
+      remoteUidByMatch.putIfAbsent(e.value.matchKey, () => e.key);
+    }
+    final takenMatch = <String>{};
+    for (final entry in localByRuid.entries) {
+      if (remoteByUid.containsKey(entry.key)) continue; // phase 1 handled it
+      final local = entry.value;
+      final matchRuid = remoteUidByMatch[local.matchKey];
+      if (matchRuid != null && !takenMatch.contains(local.matchKey)) {
+        takenMatch.add(local.matchKey);
+        matchedRemoteUids.add(matchRuid);
+        results.add(DiffResult(
+          uid: matchRuid,
+          type: DiffType.identical,
+          localContact: local,
+          remoteContact: remoteByUid[matchRuid],
+        ));
+      } else {
+        // Genuinely local-only → push.
+        results.add(DiffResult(uid: entry.key, type: DiffType.localOnly, localContact: local));
+      }
+    }
 
-      if (local != null && remote != null) {
-        // Both exist - check if both changed since last sync
-        final localChanged = !_hashMatches(local.contentHash, prevMeta?.lastSyncHash);
-        final remoteChanged = remote.etag != prevMeta?.etag;
-
-        if (localChanged && remoteChanged) {
-          results.add(DiffResult(uid: uid, type: DiffType.conflict, localContact: local, remoteContact: remote));
-        } else if (localChanged) {
-          // Local changed, remote didn't → push to remote
-          results.add(DiffResult(uid: uid, type: DiffType.localOnly, localContact: local, remoteContact: remote));
-        } else if (remoteChanged) {
-          // Remote changed, local didn't → pull to local
-          results.add(DiffResult(uid: uid, type: DiffType.remoteOnly, localContact: local, remoteContact: remote));
-        } else {
-          results.add(DiffResult(uid: uid, type: DiffType.identical, localContact: local, remoteContact: remote));
-        }
-      } else if (local != null && remote == null) {
-        if (wasSyncedBefore) {
-          // Was synced before, remote deleted → delete locally
-          results.add(DiffResult(uid: uid, type: DiffType.remoteDeleted, localContact: local));
-        } else {
-          // New locally, not on remote → push
-          results.add(DiffResult(uid: uid, type: DiffType.localOnly, localContact: local));
-        }
-      } else if (local == null && remote != null) {
-        if (wasSyncedBefore) {
-          // Was synced before, local deleted → delete from remote
-          results.add(DiffResult(uid: uid, type: DiffType.localDeleted, remoteContact: remote));
-        } else {
-          // New remotely, not local → pull
-          results.add(DiffResult(uid: uid, type: DiffType.remoteOnly, remoteContact: remote));
-        }
+    // Phase 3 — remaining remotes with no local counterpart → pull.
+    for (final e in remoteByUid.entries) {
+      if (!matchedRemoteUids.contains(e.key)) {
+        results.add(DiffResult(uid: e.key, type: DiffType.remoteOnly, remoteContact: e.value));
       }
     }
 
     return results;
   }
 
-  bool _hashMatches(String hash, String? previousHash) {
-    if (previousHash == null) return false;
-    return hash == previousHash;
+  /// Classify a uid-linked pair. Content equality is the primary "in sync"
+  /// signal; sync_meta history only decides direction when content diverged.
+  DiffResult _classifyPair(String ruid, Contact local, Contact remote, SyncMeta? prev) {
+    if (local.contentHash == remote.contentHash) {
+      return DiffResult(uid: ruid, type: DiffType.identical, localContact: local, remoteContact: remote);
+    }
+    if (prev == null) {
+      // Diverged with no history → let the user decide.
+      return DiffResult(uid: ruid, type: DiffType.conflict, localContact: local, remoteContact: remote);
+    }
+    final localChanged = local.contentHash != prev.lastSyncHash;
+    final remoteChanged = remote.etag != prev.etag;
+    final type = (localChanged && remoteChanged)
+        ? DiffType.conflict
+        : localChanged
+            ? DiffType.localOnly
+            : remoteChanged
+                ? DiffType.remoteOnly
+                : DiffType.identical;
+    return DiffResult(uid: ruid, type: type, localContact: local, remoteContact: remote);
   }
 
   /// Compute field-level diff between two contacts.

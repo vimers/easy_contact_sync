@@ -12,7 +12,68 @@ class CardDavOperations {
   CardDavOperations(this._client);
 
   /// Fetch all contacts from an addressbook (full sync).
+  /// Uses PROPFIND first (most compatible), falls back to REPORT.
   Future<List<Contact>> listContacts(String addressbookUrl) async {
+    // Strategy 1: PROPFIND depth 1 to get href+etag, then GET each vCard
+    try {
+      return await _listContactsViaPropfind(addressbookUrl);
+    } catch (_) {
+      // Strategy 2: REPORT with addressbook-query
+      try {
+        return await _listContactsViaReport(addressbookUrl);
+      } catch (_) {
+        // Strategy 3: PROPFIND depth infinity fallback
+        return await _listContactsViaPropfindDeep(addressbookUrl);
+      }
+    }
+  }
+
+  /// List contacts via PROPFIND depth 1 + individual GETs.
+  Future<List<Contact>> _listContactsViaPropfind(String addressbookUrl) async {
+    final body = '''<?xml version="1.0" encoding="utf-8"?>
+<propfind xmlns="DAV:">
+  <prop>
+    <getetag/>
+    <resourcetype/>
+  </prop>
+</propfind>''';
+
+    final response = await _client.propfind(addressbookUrl, body: body, depth: '1');
+    if (response.statusCode != 207) {
+      throw Exception('PROPFIND failed: ${response.statusCode}');
+    }
+
+    // Parse href + etag pairs from the PROPFIND response, filter to .vcf only.
+    final doc = XmlDocument.parse(response.body);
+    final pairs = <({String href, String? etag})>[];
+    for (final resp in doc.findAllElements('response')) {
+      final href = resp.findElements('href').firstOrNull?.innerText;
+      if (href == null || !href.toLowerCase().endsWith('.vcf')) continue;
+      String? etag;
+      for (final ps in resp.findElements('propstat')) {
+        final status = ps.findElements('status').firstOrNull;
+        if (status != null && !status.innerText.contains('200')) continue;
+        final etagEl = ps.findElements('prop').firstOrNull?.findElements('getetag').firstOrNull;
+        if (etagEl != null) etag = etagEl.innerText;
+      }
+      pairs.add((href: href, etag: etag));
+    }
+
+    // GET each contact's vCard, attach the PROPFIND etag.
+    final contacts = <Contact>[];
+    for (final p in pairs) {
+      try {
+        final contact = await getContact(p.href);
+        contacts.add(contact.copyWith(etag: contact.etag ?? p.etag));
+      } catch (_) {
+        // Skip individual failures
+      }
+    }
+    return contacts;
+  }
+
+  /// List contacts via REPORT addressbook-query.
+  Future<List<Contact>> _listContactsViaReport(String addressbookUrl) async {
     final body = '''<?xml version="1.0" encoding="utf-8"?>
 <C:addressbook-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav">
   <D:prop>
@@ -22,6 +83,24 @@ class CardDavOperations {
 </C:addressbook-query>''';
 
     final response = await _client.report(addressbookUrl, body, depth: '1');
+    if (response.statusCode != 207) {
+      throw Exception('Failed to list contacts: ${response.statusCode}');
+    }
+    return _parseContactResponse(response.body);
+  }
+
+  /// Deep PROPFIND that tries to get address-data inline.
+  Future<List<Contact>> _listContactsViaPropfindDeep(String addressbookUrl) async {
+    final body = '''<?xml version="1.0" encoding="utf-8"?>
+<propfind xmlns="DAV:" xmlns:CR="urn:ietf:params:xml:ns:carddav">
+  <prop>
+    <getetag/>
+    <CR:address-data/>
+    <resourcetype/>
+  </prop>
+</propfind>''';
+
+    final response = await _client.propfind(addressbookUrl, body: body, depth: '1');
     if (response.statusCode != 207) {
       throw Exception('Failed to list contacts: ${response.statusCode}');
     }
@@ -69,7 +148,8 @@ class CardDavOperations {
       throw Exception('Failed to get contact: ${response.statusCode}');
     }
     final contact = _parser.parse(response.body);
-    return contact.copyWith(href: href);
+    // Capture the etag from the GET response when the server provides it.
+    return contact.copyWith(href: href, etag: contact.etag ?? response.headers['etag']);
   }
 
   /// Create a new contact on the server. Returns the created contact with href/etag.
@@ -92,7 +172,12 @@ class CardDavOperations {
   }
 
   /// Update an existing contact.
-  Future<Contact> updateContact(Contact contact) async {
+  ///
+  /// [force]: send `If-Match: *` (overwrite the current version) instead of the
+  /// stored etag. Use when the caller knows it wants to overwrite regardless of
+  /// the server's current version — e.g. conflict resolution where the user
+  /// explicitly chose a side.
+  Future<Contact> updateContact(Contact contact, {bool force = false}) async {
     if (contact.href == null) throw Exception('Contact href is required for update');
 
     final writer = VCardWriter();
@@ -101,9 +186,14 @@ class CardDavOperations {
     final response = await _client.put(
       contact.href!,
       vcard,
-      etag: contact.etag,
+      etag: force ? '*' : contact.etag,
     );
     if (response.statusCode != 204 && response.statusCode != 200) {
+      // SYNC-DIAG: capture the vCard body + server explanation if it still fails.
+      // ignore: avoid_print
+      print('SYNC-DIAG putFail href=${contact.href} sentEtag=${contact.etag} '
+          'vcard=${vcard.length > 400 ? vcard.substring(0, 400) : vcard} '
+          'status=${response.statusCode} body=${response.body.length > 400 ? response.body.substring(0, 400) : response.body}');
       throw Exception('Failed to update contact: ${response.statusCode}');
     }
 
@@ -112,14 +202,38 @@ class CardDavOperations {
     );
   }
 
-  /// Delete a contact from the server.
+  /// Delete a contact from the server. A 404 (already gone) is treated as success.
   Future<void> deleteContact(Contact contact) async {
     if (contact.href == null) throw Exception('Contact href is required for delete');
 
     final response = await _client.delete(contact.href!, etag: contact.etag);
-    if (response.statusCode != 204 && response.statusCode != 200) {
+    if (response.statusCode != 204 && response.statusCode != 200 && response.statusCode != 404) {
       throw Exception('Failed to delete contact: ${response.statusCode}');
     }
+  }
+
+  /// Fetch the current etag of a contact resource via PROPFIND depth 0. Used to
+  /// get a fresh, server-authoritative etag before an update (some servers
+  /// reject updates without a matching If-Match etag).
+  Future<String?> fetchEtag(String href) async {
+    final body = '''<?xml version="1.0" encoding="utf-8"?>
+<propfind xmlns="DAV:">
+  <prop>
+    <getetag/>
+  </prop>
+</propfind>''';
+    final response = await _client.propfind(href, body: body, depth: '0');
+    if (response.statusCode != 207) return null;
+    final doc = XmlDocument.parse(response.body);
+    for (final resp in doc.findAllElements('response')) {
+      for (final ps in resp.findElements('propstat')) {
+        final status = ps.findElements('status').firstOrNull;
+        if (status != null && !status.innerText.contains('200')) continue;
+        final etagEl = ps.findElements('prop').firstOrNull?.findElements('getetag').firstOrNull;
+        if (etagEl != null) return etagEl.innerText;
+      }
+    }
+    return null;
   }
 
   // ── Internal helpers ──

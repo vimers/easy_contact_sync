@@ -10,11 +10,8 @@ final localContactServiceProvider = Provider<LocalContactService>((ref) {
 /// Provider for all local contacts.
 final contactsProvider = FutureProvider<List<Contact>>((ref) async {
   final service = ref.watch(localContactServiceProvider);
-  final hasPermission = await service.hasPermission();
-  if (!hasPermission) {
-    final granted = await service.requestPermission();
-    if (!granted) return [];
-  }
+  // getAllContacts requests permission internally (showing the system dialog
+  // on first launch) and returns an empty list if denied — never crashes.
   return service.getAllContacts();
 });
 

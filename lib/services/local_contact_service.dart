@@ -1,24 +1,35 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_contacts/flutter_contacts.dart' as fc;
 import '../models/contact.dart';
 
 /// Service for reading/writing local system contacts via flutter_contacts.
+/// On Linux/Windows desktop, returns empty lists (no system address book).
 class LocalContactService {
+  bool get _isDesktop => Platform.isLinux || Platform.isWindows;
+
   /// Request contact permission. Returns true if granted.
-  Future<bool> requestPermission() async {
-    return await fc.FlutterContacts.requestPermission();
+  /// Idempotent: if already granted, returns true without showing a dialog.
+  Future<bool> requestPermission({bool readonly = false}) async {
+    if (_isDesktop) return true;
+    return await fc.FlutterContacts.requestPermission(readonly: readonly);
   }
 
-  /// Check if contact permission is granted.
-  Future<bool> hasPermission() async {
-    // flutter_contacts doesn't have checkPermission, try requestPermission
-    // or rely on getContacts returning empty on no permission
-    return true;
+  /// Ensure the required contact permission has been granted before touching
+  /// the system address book. This is mandatory: flutter_contacts throws an
+  /// uncaught SecurityException on a background coroutine if accessed without
+  /// permission, which crashes the whole process natively (no Dart handler can
+  /// catch it). [readonly] true requests READ_CONTACTS only; false requests
+  /// READ+WRITE.
+  Future<bool> _ensurePermission({bool readonly = false}) async {
+    return requestPermission(readonly: readonly);
   }
 
   /// Get all local contacts, mapped to our Contact model.
   Future<List<Contact>> getAllContacts() async {
+    if (_isDesktop) return [];
+    if (!await _ensurePermission(readonly: true)) return [];
     final fcContacts = await fc.FlutterContacts.getContacts(
       withProperties: true,
       withPhoto: true,
@@ -28,6 +39,8 @@ class LocalContactService {
 
   /// Get a single contact by ID.
   Future<Contact?> getContact(String id) async {
+    if (_isDesktop) return null;
+    if (!await _ensurePermission(readonly: true)) return null;
     final fcContact = await fc.FlutterContacts.getContact(id);
     if (fcContact == null) return null;
     return _fromFlutterContact(fcContact);
@@ -35,6 +48,10 @@ class LocalContactService {
 
   /// Create a new local contact.
   Future<Contact> createContact(Contact contact) async {
+    if (_isDesktop) return contact;
+    if (!await _ensurePermission()) {
+      throw Exception('Write contact permission denied');
+    }
     final fcContact = _toFlutterContact(contact);
     final created = await fc.FlutterContacts.insertContact(fcContact);
     return _fromFlutterContact(created);
@@ -42,7 +59,11 @@ class LocalContactService {
 
   /// Update an existing local contact.
   Future<Contact> updateContact(Contact contact) async {
+    if (_isDesktop) return contact;
     if (contact.uid == null) throw Exception('Contact UID (local ID) required for update');
+    if (!await _ensurePermission()) {
+      throw Exception('Write contact permission denied');
+    }
 
     final existing = await fc.FlutterContacts.getContact(contact.uid!);
     if (existing == null) throw Exception('Local contact not found: ${contact.uid}');
@@ -54,10 +75,34 @@ class LocalContactService {
 
   /// Delete a local contact.
   Future<void> deleteContact(String id) async {
+    if (_isDesktop) return;
+    if (!await _ensurePermission()) return;
     final fcContact = await fc.FlutterContacts.getContact(id);
     if (fcContact != null) {
       await fc.FlutterContacts.deleteContact(fcContact);
     }
+  }
+
+  /// Remove exact-duplicate local contacts (identical content). Keeps one
+  /// per group, deletes the rest. Returns the number removed.
+  Future<int> dedupLocalContacts() async {
+    if (_isDesktop) return 0;
+    if (!await _ensurePermission(readonly: false)) return 0;
+    final fcContacts =
+        await fc.FlutterContacts.getContacts(withProperties: true, withPhoto: true);
+    final byMatch = <String, List<fc.Contact>>{};
+    for (final c in fcContacts) {
+      final key = _fromFlutterContact(c).matchKey;
+      byMatch.putIfAbsent(key, () => []).add(c);
+    }
+    var removed = 0;
+    for (final group in byMatch.values) {
+      for (final dup in group.skip(1)) {
+        await fc.FlutterContacts.deleteContact(dup);
+        removed++;
+      }
+    }
+    return removed;
   }
 
   // ── Mappers ──
