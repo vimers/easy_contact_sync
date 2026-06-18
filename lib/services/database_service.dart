@@ -6,7 +6,7 @@ import 'package:path/path.dart' as p;
 /// Database helper for sync metadata.
 class DatabaseService {
   static const _dbName = 'easycontactsync.db';
-  static const _dbVersion = 4;
+  static const _dbVersion = 5;
 
   Database? _db;
 
@@ -79,6 +79,8 @@ class DatabaseService {
     await _createRemoteContactCacheTable(db);
 
     await _createContactUidMapTable(db);
+
+    await _createDeletedUidsTable(db);
   }
 
   /// Create the error_log table. Shared by [onCreate] and [onUpgrade] so the
@@ -107,6 +109,9 @@ class DatabaseService {
     if (oldVersion < 4) {
       await _createContactUidMapTable(db);
     }
+    if (oldVersion < 5) {
+      await _createDeletedUidsTable(db);
+    }
   }
 
   /// Maps a local (device) contact id to the remote (CardDAV) UID, so contacts
@@ -123,6 +128,21 @@ class DatabaseService {
         updated_at TEXT NOT NULL,
         UNIQUE(account_id, local_id),
         UNIQUE(account_id, remote_uid)
+      )
+    ''');
+  }
+
+  /// Tombstones: remote uids the user deleted in-app. The sync engine consumes
+  /// (and removes) these to propagate the deletion to the server, then cleans
+  /// the related sync_meta / uid_map rows.
+  Future<void> _createDeletedUidsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE deleted_uids (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id INTEGER NOT NULL,
+        uid TEXT NOT NULL,
+        deleted_at TEXT NOT NULL,
+        UNIQUE(account_id, uid)
       )
     ''');
   }
@@ -378,5 +398,42 @@ class DatabaseService {
     await db.delete('contact_uid_map',
         where: 'account_id = ? AND local_id = ?',
         whereArgs: [accountId, localId]);
+  }
+
+  // ── Tombstones (in-app deletions pending server propagation) ──
+
+  Future<void> insertTombstone(int accountId, String uid) async {
+    final db = await database;
+    await db.insert(
+      'deleted_uids',
+      {
+        'account_id': accountId,
+        'uid': uid,
+        'deleted_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getTombstonesForAccount(int accountId) async {
+    final db = await database;
+    return db.query('deleted_uids',
+        where: 'account_id = ?', whereArgs: [accountId]);
+  }
+
+  Future<void> deleteTombstone(int accountId, String uid) async {
+    final db = await database;
+    await db.delete('deleted_uids',
+        where: 'account_id = ? AND uid = ?', whereArgs: [accountId, uid]);
+  }
+
+  /// Remove the uid_map row for a remote uid (used when the local side is
+  /// already gone and only the remote uid is known). Mirrors
+  /// [deleteUidMapForLocal].
+  Future<void> deleteUidMapForRemote(int accountId, String remoteUid) async {
+    final db = await database;
+    await db.delete('contact_uid_map',
+        where: 'account_id = ? AND remote_uid = ?',
+        whereArgs: [accountId, remoteUid]);
   }
 }

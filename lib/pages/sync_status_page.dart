@@ -6,6 +6,7 @@ import '../providers/contact_sync_status_provider.dart';
 import '../models/sync_record.dart';
 import '../services/sync/sync_engine.dart';
 import 'conflict_page.dart';
+import 'deletion_review_page.dart';
 
 /// Sync status page showing result details, manual sync button, and conflict entry.
 class SyncStatusPage extends ConsumerWidget {
@@ -16,6 +17,7 @@ class SyncStatusPage extends ConsumerWidget {
     final syncState = ref.watch(syncNotifierProvider);
     final accountsAsync = ref.watch(accountsProvider);
     final conflicts = ref.watch(differingConflictsProvider);
+    final deletionsAsync = ref.watch(pendingDeletionsProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -125,6 +127,33 @@ class SyncStatusPage extends ConsumerWidget {
                 ),
               ),
             ],
+
+            // Pending deletions (deleted outside the app, or on the server)
+            deletionsAsync.when(
+              data: (proposals) {
+                if (proposals.isEmpty) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => DeletionReviewPage(proposals: proposals),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.delete_sweep_outlined),
+                      label: Text('Review ${proposals.length} deletions'),
+                    ),
+                  ),
+                );
+              },
+              loading: () => const SizedBox.shrink(),
+              error: (_, __) => const SizedBox.shrink(),
+            ),
 
             const SizedBox(height: 16),
 

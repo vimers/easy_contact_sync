@@ -18,11 +18,16 @@ class DiffEngine {
   /// pulled from the server get a fresh device id, so without this map they
   /// could never be matched back to their remote counterpart — which caused the
   /// duplicate-creation spiral.
+  /// [excludeUids] remote uids to skip entirely (tombstones — in-app deletions
+  /// the sync engine handles separately). Applied on the remote side only: a
+  /// tombstoned contact has no local counterpart, so Phase 2 (which iterates
+  /// existing locals) can never encounter one.
   Future<List<DiffResult>> computeDiff({
     required List<Contact> localContacts,
     required List<Contact> remoteContacts,
     required int accountId,
     Map<String, String>? localToRemoteUid,
+    Set<String>? excludeUids,
   }) async {
     final results = <DiffResult>[];
     final l2r = localToRemoteUid ?? <String, String>{};
@@ -92,16 +97,29 @@ class DiffEngine {
           remoteContact: remoteByUid[matchRuid],
         ));
       } else {
-        // Genuinely local-only → push.
-        results.add(DiffResult(uid: entry.key, type: DiffType.localOnly, localContact: local));
+        // No remote counterpart by uid or content. If we previously synced this
+        // uid, the server deleted it (remoteDeleted) — otherwise it is a
+        // genuinely new local contact (localOnly → push).
+        final type = syncMetaMap.containsKey(entry.key)
+            ? DiffType.remoteDeleted
+            : DiffType.localOnly;
+        results.add(DiffResult(uid: entry.key, type: type, localContact: local));
       }
     }
 
-    // Phase 3 — remaining remotes with no local counterpart → pull.
+    // Phase 3 — remaining remotes with no local counterpart. A remote uid that
+    // was previously synced (in sync_meta) but now has no local contact was
+    // deleted locally ⇒ localDeleted. Otherwise it is a new remote contact ⇒
+    // remoteOnly (pull). Tombstoned uids (excludeUids) are handled by the sync
+    // engine and skipped here so they are not also queued as inferred deletions.
+    final exclude = excludeUids ?? const <String>{};
     for (final e in remoteByUid.entries) {
-      if (!matchedRemoteUids.contains(e.key)) {
-        results.add(DiffResult(uid: e.key, type: DiffType.remoteOnly, remoteContact: e.value));
-      }
+      if (matchedRemoteUids.contains(e.key)) continue;
+      if (exclude.contains(e.key)) continue;
+      final type = syncMetaMap.containsKey(e.key)
+          ? DiffType.localDeleted
+          : DiffType.remoteOnly;
+      results.add(DiffResult(uid: e.key, type: type, remoteContact: e.value));
     }
 
     return results;
