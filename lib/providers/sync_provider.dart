@@ -67,6 +67,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
       }
 
       final allConflicts = <ConflictItem>[];
+      final allDeletionProposals = <DeletionProposal>[];
       SyncResult? lastResult;
       int totalPushed = 0, totalPulled = 0, totalDeletedLocal = 0, totalDeletedRemote = 0;
 
@@ -75,6 +76,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
         final result = await _syncEngine.sync(account);
         lastResult = result;
         allConflicts.addAll(result.conflicts);
+        allDeletionProposals.addAll(result.deletionProposals);
         totalPushed += result.pushed;
         totalPulled += result.pulled;
         totalDeletedLocal += result.deletedLocal;
@@ -89,6 +91,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
         deletedLocal: totalDeletedLocal,
         deletedRemote: totalDeletedRemote,
         conflicts: allConflicts,
+        deletionProposals: allDeletionProposals,
         errorMessage: lastResult?.errorMessage,
       );
 
@@ -152,6 +155,36 @@ class SyncNotifier extends StateNotifier<SyncState> {
         statusMessage: 'Resolution failed: $e',
       );
     }
+  }
+
+  /// Apply the user's choices for inferred deletions, then refresh.
+  Future<void> resolveDeletions(Account account, List<DeletionProposal> proposals) async {
+    state = state.copyWith(isSyncing: true, statusMessage: 'Applying deletions...');
+    try {
+      await _syncEngine.applyDeletionResolutions(account, proposals);
+      state = state.copyWith(isSyncing: false, statusMessage: 'Deletions applied');
+      _ref.invalidate(contactsProvider);
+      _ref.read(remoteCacheVersionProvider.notifier).state++;
+    } catch (e, st) {
+      ErrorLoggerService.instance.log(source: 'sync', error: e, stackTrace: st);
+      state = state.copyWith(isSyncing: false, statusMessage: 'Delete failed: $e');
+    }
+  }
+
+  /// Delete a contact from the device and record a tombstone so the next sync
+  /// removes it from the server too. If the contact was never synced (no
+  /// uid_map entry) there is nothing to propagate — just delete locally.
+  Future<void> deleteLocalContact({required int accountId, required String localUid}) async {
+    final localService = _ref.read(localContactServiceProvider);
+    final db = _ref.read(databaseServiceProvider);
+    final uidMap = await db.getUidMapForAccount(accountId);
+    final remoteUid = uidMap[localUid];
+    await localService.deleteContact(localUid);
+    if (remoteUid != null) {
+      await db.insertTombstone(accountId, remoteUid);
+    }
+    _ref.invalidate(contactsProvider);
+    _ref.read(remoteCacheVersionProvider.notifier).state++;
   }
 
   /// Remove exact-duplicate contacts from the remote addressbook(s).
