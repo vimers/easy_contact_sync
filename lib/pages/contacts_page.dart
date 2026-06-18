@@ -80,7 +80,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
                     final dc = items[index];
                     final canDelete = dc.localContact?.uid != null;
                     return Dismissible(
-                      key: ValueKey('contact-${dc.uid}-${dc.contact.bestName}'),
+                      key: ValueKey('contact-${dc.uid}'),
                       direction: canDelete
                           ? DismissDirection.endToStart
                           : DismissDirection.none,

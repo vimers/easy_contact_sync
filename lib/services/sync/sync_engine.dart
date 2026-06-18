@@ -74,9 +74,8 @@ class SyncEngine {
       final localContacts = await _localContacts.getAllContacts();
       final uidMap = await _db.getUidMapForAccount(account.id!);
 
-      // Counters (declared here because tombstone processing below already
-      // increments deletedRemote; the original declaration further down must be
-      // removed — see Edit B).
+      // Counters declared here (not further down) because tombstone processing
+      // below increments deletedRemote before the diff loop runs.
       int pushed = 0, pulled = 0, deletedLocal = 0, deletedRemote = 0;
 
       // 3a. Process tombstones: contacts the user deleted in-app. These are
