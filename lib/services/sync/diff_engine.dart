@@ -18,6 +18,10 @@ class DiffEngine {
   /// pulled from the server get a fresh device id, so without this map they
   /// could never be matched back to their remote counterpart — which caused the
   /// duplicate-creation spiral.
+  /// [excludeUids] remote uids to skip entirely (tombstones — in-app deletions
+  /// the sync engine handles separately). Applied on the remote side only: a
+  /// tombstoned contact has no local counterpart, so Phase 2 (which iterates
+  /// existing locals) can never encounter one.
   Future<List<DiffResult>> computeDiff({
     required List<Contact> localContacts,
     required List<Contact> remoteContacts,
