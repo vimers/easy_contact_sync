@@ -210,3 +210,62 @@ final differingConflictsProvider = Provider<List<ConflictItem>>((ref) {
     orElse: () => const [],
   );
 });
+
+/// Inferred deletions detected from the current diff (deleted outside the app,
+/// or deleted on the server). The single source of truth for the deletion-review
+/// UI. Tombstoned uids are excluded so in-app deletes aren't double-listed.
+/// Confirming a proposal cleans sync_meta, so on recompute it drops out.
+final pendingDeletionsProvider = FutureProvider<List<DeletionProposal>>((ref) async {
+  ref.watch(remoteCacheVersionProvider);
+  final db = ref.watch(databaseServiceProvider);
+  final localService = ref.watch(localContactServiceProvider);
+  final diffEngine = DiffEngine(db);
+
+  final accountRows = await db.getAllAccounts();
+  if (accountRows.isEmpty) return const [];
+
+  final accountId = accountRows.first['id'] as int;
+  final local = await localService.getAllContacts();
+
+  final remote = <Contact>[];
+  for (final row in await db.getRemoteCacheForAccount(accountId)) {
+    final json = row['contact_json'] as String?;
+    if (json == null) continue;
+    try {
+      remote.add(Contact.fromJson(jsonDecode(json) as Map<String, dynamic>));
+    } catch (_) {
+      // Skip unparseable cache rows.
+    }
+  }
+
+  final uidMap = await db.getUidMapForAccount(accountId);
+  final tombUids = (await db.getTombstonesForAccount(accountId))
+      .map((r) => r['uid'] as String)
+      .toSet();
+
+  final diffs = await diffEngine.computeDiff(
+    localContacts: local,
+    remoteContacts: remote,
+    accountId: accountId,
+    localToRemoteUid: uidMap,
+    excludeUids: tombUids,
+  );
+
+  final proposals = <DeletionProposal>[];
+  for (final d in diffs) {
+    if (d.type == DiffType.localDeleted && d.remoteContact != null) {
+      proposals.add(DeletionProposal(
+        uid: d.uid,
+        side: DeletionSide.localDeleted,
+        remoteContact: d.remoteContact,
+      ));
+    } else if (d.type == DiffType.remoteDeleted && d.localContact != null) {
+      proposals.add(DeletionProposal(
+        uid: d.uid,
+        side: DeletionSide.remoteDeleted,
+        localContact: d.localContact,
+      ));
+    }
+  }
+  return proposals;
+});
