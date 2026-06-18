@@ -74,6 +74,35 @@ class SyncEngine {
       final localContacts = await _localContacts.getAllContacts();
       final uidMap = await _db.getUidMapForAccount(account.id!);
 
+      // Counters (declared here because tombstone processing below already
+      // increments deletedRemote; the original declaration further down must be
+      // removed — see Edit B).
+      int pushed = 0, pulled = 0, deletedLocal = 0, deletedRemote = 0;
+
+      // 3a. Process tombstones: contacts the user deleted in-app. These are
+      // definite deletions — remove from the server (retry on failure), then
+      // clean metadata. Failed deletes leave everything intact for next sync.
+      final tombRows = await _db.getTombstonesForAccount(account.id!);
+      final tombstoneUids = tombRows.map((r) => r['uid'] as String).toSet();
+      for (final uid in tombstoneUids.toList()) {
+        final idx = remoteContacts.indexWhere((c) => c.uid == uid);
+        final remote = idx >= 0 ? remoteContacts[idx] : null;
+        if (remote != null && remote.href != null) {
+          try {
+            await operations.deleteContact(remote);
+            deletedRemote++;
+          } catch (_) {
+            // Server delete failed — leave tombstone + meta for next sync.
+            continue;
+          }
+        }
+        // Success or already gone remotely: drop from the diff set + clean up.
+        remoteContacts.removeWhere((c) => c.uid == uid);
+        await _db.deleteTombstone(account.id!, uid);
+        await _db.deleteSyncMeta(account.id!, uid);
+        await _db.deleteUidMapForRemote(account.id!, uid);
+      }
+
       // Cache the remote snapshot for the Contacts/Sync UI.
       await _cacheRemoteContacts(account.id!, remoteContacts);
 
@@ -84,11 +113,12 @@ class SyncEngine {
         remoteContacts: remoteContacts,
         accountId: account.id!,
         localToRemoteUid: uidMap,
+        excludeUids: tombstoneUids,
       );
 
       // 5. Process diffs
-      int pushed = 0, pulled = 0, deletedLocal = 0, deletedRemote = 0;
       final conflicts = <ConflictItem>[];
+      final deletionProposals = <DeletionProposal>[];
 
       for (final diff in diffs) {
         switch (diff.type) {
@@ -129,18 +159,26 @@ class SyncEngine {
             break;
 
           case DiffType.localDeleted:
-            // Delete from remote
+            // Inferred local deletion — do NOT auto-delete from the server. A
+            // partial remote listing must never trigger silent deletion; route
+            // to the confirmation queue.
             if (diff.remoteContact != null) {
-              await operations.deleteContact(diff.remoteContact!);
-              deletedRemote++;
+              deletionProposals.add(DeletionProposal(
+                uid: diff.uid,
+                side: DeletionSide.localDeleted,
+                remoteContact: diff.remoteContact,
+              ));
             }
             break;
 
           case DiffType.remoteDeleted:
-            // Delete from local
-            if (diff.localContact != null && diff.localContact!.uid != null) {
-              await _localContacts.deleteContact(diff.localContact!.uid!);
-              deletedLocal++;
+            // Inferred remote deletion — same reasoning; confirm before acting.
+            if (diff.localContact != null) {
+              deletionProposals.add(DeletionProposal(
+                uid: diff.uid,
+                side: DeletionSide.remoteDeleted,
+                localContact: diff.localContact,
+              ));
             }
             break;
 
@@ -197,6 +235,7 @@ class SyncEngine {
         deletedLocal: deletedLocal,
         deletedRemote: deletedRemote,
         conflicts: conflicts,
+        deletionProposals: deletionProposals,
       );
     } catch (e) {
       await _db.insertSyncLog(SyncLog(
@@ -296,6 +335,80 @@ class SyncEngine {
     client.dispose();
   }
 
+  /// Apply the user's choices for inferred deletions (propagate the deletion to
+  /// the other side, or restore the contact there). Mirrors [applyResolutions].
+  Future<void> applyDeletionResolutions(
+    Account account,
+    List<DeletionProposal> resolved,
+  ) async {
+    final password = await _secureStorage.getPassword(account.id!);
+    if (password == null) return;
+
+    final client = CardDavHttpClient(
+      serverUrl: account.serverUrl,
+      username: account.username,
+      password: password,
+    );
+    final operations = CardDavOperations(client);
+    final discovery = CardDavDiscovery(client);
+
+    String addressbookUrl;
+    try {
+      final principalUrl = await discovery.discoverPrincipalUrl();
+      final abHome = await discovery.discoverAddressbookHome(principalUrl);
+      final addressbooks = await discovery.discoverAddressbooks(abHome);
+      addressbookUrl =
+          addressbooks.isEmpty ? account.serverUrl : addressbooks.first.href;
+    } catch (_) {
+      addressbookUrl = account.serverUrl;
+    }
+
+    for (final p in resolved) {
+      if (p.choice == DeletionChoice.unresolved) continue;
+
+      if (p.choice == DeletionChoice.propagate) {
+        if (p.side == DeletionSide.localDeleted) {
+          // Finish the deletion on the server.
+          final remote = p.remoteContact!;
+          final freshEtag =
+              remote.href != null ? await operations.fetchEtag(remote.href!) : null;
+          await operations.deleteContact(remote.copyWith(etag: freshEtag));
+          await _db.deleteSyncMeta(account.id!, p.uid);
+          await _db.deleteUidMapForRemote(account.id!, p.uid);
+        } else {
+          // Delete the local copy.
+          final localUid = p.localContact!.uid;
+          if (localUid != null) {
+            await _localContacts.deleteContact(localUid);
+            await _db.deleteUidMapForLocal(account.id!, localUid);
+          }
+          await _db.deleteSyncMeta(account.id!, p.uid);
+        }
+      } else {
+        // Restore: undo the inferred deletion on the missing side.
+        if (p.side == DeletionSide.localDeleted) {
+          // Pull the remote contact back to the device.
+          final remote = p.remoteContact!;
+          final created = await _localContacts.createContact(remote);
+          if (created.uid != null) {
+            await _db.upsertUidMap(account.id!, created.uid!, p.uid);
+          }
+          await _db.upsertSyncMeta(account.id!, p.uid, remote.etag, created.contentHash);
+        } else {
+          // Re-push the local contact to the server.
+          final local = p.localContact!;
+          final created = await operations.createContact(addressbookUrl, local);
+          if (local.uid != null) {
+            await _db.upsertUidMap(account.id!, local.uid!, created.uid ?? p.uid);
+          }
+          await _db.upsertSyncMeta(account.id!, p.uid, created.etag, local.contentHash);
+        }
+      }
+    }
+
+    client.dispose();
+  }
+
   /// Remove exact-duplicate contacts from the remote addressbook. Contacts
   /// with identical content (same contentHash) are grouped; one per group is
   /// kept and the rest are deleted. Returns counts. Used to clean up the
@@ -385,6 +498,7 @@ class SyncResult {
   final int deletedLocal;
   final int deletedRemote;
   final List<ConflictItem> conflicts;
+  final List<DeletionProposal> deletionProposals;
 
   const SyncResult({
     required this.status,
@@ -394,6 +508,7 @@ class SyncResult {
     this.deletedLocal = 0,
     this.deletedRemote = 0,
     this.conflicts = const [],
+    this.deletionProposals = const [],
   });
 }
 
