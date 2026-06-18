@@ -61,3 +61,28 @@ class FieldDiff {
 
   bool get hasDifference => localValue != remoteValue;
 }
+
+/// Which side a detected deletion happened on (the side that is now missing).
+enum DeletionSide { localDeleted, remoteDeleted }
+
+/// User's choice for a deletion detected by inference (not a tombstone).
+enum DeletionChoice { unresolved, propagate, restore }
+
+/// A deletion inferred from sync history (deleted outside the app, or deleted
+/// on the server). Surfaced for confirmation — never auto-applied, because a
+/// partial remote listing must not trigger silent data deletion.
+class DeletionProposal {
+  final String uid;
+  final DeletionSide side;
+  final Contact? localContact; // present for remoteDeleted
+  final Contact? remoteContact; // present for localDeleted
+  DeletionChoice choice;
+
+  DeletionProposal({
+    required this.uid,
+    required this.side,
+    this.localContact,
+    this.remoteContact,
+    this.choice = DeletionChoice.unresolved,
+  });
+}
