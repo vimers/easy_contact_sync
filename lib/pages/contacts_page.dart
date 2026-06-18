@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/conflict_item.dart';
 import '../providers/contacts_provider.dart';
 import '../providers/contact_sync_status_provider.dart';
+import '../providers/accounts_provider.dart';
+import '../providers/sync_provider.dart';
 import '../widgets/contact_list_item.dart';
 import 'conflict_page.dart';
 import 'contact_detail_page.dart';
@@ -76,13 +78,27 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
                   itemCount: items.length,
                   itemBuilder: (context, index) {
                     final dc = items[index];
-                    return ContactListItem(
-                      contact: dc.contact,
-                      status: dc.status,
-                      onTap: () => _onTap(dc),
-                      onStatusTap: dc.status == ContactSyncStatus.differing
-                          ? () => _openResolve(dc)
-                          : null,
+                    final canDelete = dc.localContact?.uid != null;
+                    return Dismissible(
+                      key: ValueKey('contact-${dc.uid}-${dc.contact.bestName}'),
+                      direction: canDelete
+                          ? DismissDirection.endToStart
+                          : DismissDirection.none,
+                      background: Container(
+                        color: Colors.red,
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      confirmDismiss: canDelete ? (_) => _confirmDelete(dc) : null,
+                      child: ContactListItem(
+                        contact: dc.contact,
+                        status: dc.status,
+                        onTap: () => _onTap(dc),
+                        onStatusTap: dc.status == ContactSyncStatus.differing
+                            ? () => _openResolve(dc)
+                            : null,
+                      ),
                     );
                   },
                 );
@@ -105,7 +121,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ContactDetailPage(contact: dc.contact),
+        builder: (_) => ContactDetailPage(display: dc),
       ),
     );
   }
@@ -123,5 +139,47 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
         builder: (_) => ConflictPage(conflicts: [item]),
       ),
     );
+  }
+
+  Future<bool> _confirmDelete(DisplayContact dc) async {
+    final localUid = dc.localContact!.uid;
+    if (localUid == null) return false;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete contact?'),
+        content: const Text(
+          'This removes the contact from your phone. It will also be removed '
+          'from the server on the next sync.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return false;
+
+    final accounts = await ref.read(accountsProvider.future);
+    if (accounts.isEmpty) {
+      await ref.read(localContactServiceProvider).deleteContact(localUid);
+    } else {
+      await ref.read(syncNotifierProvider.notifier).deleteLocalContact(
+            accountId: accounts.first.id!,
+            localUid: localUid,
+          );
+    }
+
+    if (!mounted) return false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Deleted. Will be removed from the server on next sync.')),
+    );
+    return true;
   }
 }
