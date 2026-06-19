@@ -8,11 +8,20 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'theme/app_theme.dart';
 import 'pages/shell_page.dart';
 import 'providers/error_log_provider.dart';
+import 'services/background_sync_service.dart';
+import 'services/database_service.dart';
 import 'services/error_logger_service.dart';
 
-void main() {
+void main() async {
   // Initialize binding first so error handlers work.
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Workmanager up front. registerPeriodicTask throws a
+  // PlatformException if this hasn't run, so without it, changing the sync
+  // frequency in Settings would throw → CrashScreen. Must run before runApp,
+  // before any UI can reach registerPeriodicTask. (initialize() only touches
+  // Workmanager + notifications; it never opens the DB.)
+  await BackgroundSyncService(DatabaseService()).initialize();
 
   // Capture errors thrown outside Flutter's framework reporting (async, zones,
   // platform channel failures). Everything is persisted via ErrorLoggerService
