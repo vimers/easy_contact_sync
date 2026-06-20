@@ -30,7 +30,7 @@ class CardDavOperations {
 
   /// List contacts via PROPFIND depth 1 + individual GETs.
   Future<List<Contact>> _listContactsViaPropfind(String addressbookUrl) async {
-    final body = '''<?xml version="1.0" encoding="utf-8"?>
+    const body = '''<?xml version="1.0" encoding="utf-8"?>
 <propfind xmlns="DAV:">
   <prop>
     <getetag/>
@@ -74,7 +74,7 @@ class CardDavOperations {
 
   /// List contacts via REPORT addressbook-query.
   Future<List<Contact>> _listContactsViaReport(String addressbookUrl) async {
-    final body = '''<?xml version="1.0" encoding="utf-8"?>
+    const body = '''<?xml version="1.0" encoding="utf-8"?>
 <C:addressbook-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav">
   <D:prop>
     <D:getetag/>
@@ -91,7 +91,7 @@ class CardDavOperations {
 
   /// Deep PROPFIND that tries to get address-data inline.
   Future<List<Contact>> _listContactsViaPropfindDeep(String addressbookUrl) async {
-    final body = '''<?xml version="1.0" encoding="utf-8"?>
+    const body = '''<?xml version="1.0" encoding="utf-8"?>
 <propfind xmlns="DAV:" xmlns:CR="urn:ietf:params:xml:ns:carddav">
   <prop>
     <getetag/>
@@ -157,7 +157,7 @@ class CardDavOperations {
     final writer = VCardWriter();
     final vcard = writer.write(contact);
     final uid = contact.uid ?? _generateUid();
-    final href = '$addressbookUrl/${uid}.vcf';
+    final href = '$addressbookUrl/$uid.vcf';
 
     final response = await _client.put(href, vcard);
     if (response.statusCode != 201 && response.statusCode != 204) {
@@ -216,7 +216,7 @@ class CardDavOperations {
   /// get a fresh, server-authoritative etag before an update (some servers
   /// reject updates without a matching If-Match etag).
   Future<String?> fetchEtag(String href) async {
-    final body = '''<?xml version="1.0" encoding="utf-8"?>
+    const body = '''<?xml version="1.0" encoding="utf-8"?>
 <propfind xmlns="DAV:">
   <prop>
     <getetag/>

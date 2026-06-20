@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import '../../models/account.dart';
 import '../../providers/accounts_provider.dart';
-import '../../services/database_service.dart';
 import '../qr_scan_page.dart';
 
 /// Page for adding or editing a CardDAV account.
@@ -339,19 +338,19 @@ class _AccountEditPageState extends ConsumerState<AccountEditPage> {
           await secureStorage.savePassword(widget.account!.id!, _passwordController.text);
         }
       } else {
-        print('DEBUG: Adding account...');
+        debugPrint('DEBUG: Adding account...');
         await ref.read(accountNotifierProvider.notifier).addAccount(
               serverUrl: _serverUrlController.text.trim(),
               username: _usernameController.text.trim(),
               password: _passwordController.text,
             );
-        print('DEBUG: Account added successfully');
+        debugPrint('DEBUG: Account added successfully');
       }
 
       if (mounted) Navigator.pop(context);
     } catch (e, stackTrace) {
-      print('DEBUG: Save error: $e');
-      print('DEBUG: StackTrace: $stackTrace');
+      debugPrint('DEBUG: Save error: $e');
+      debugPrint('DEBUG: StackTrace: $stackTrace');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
