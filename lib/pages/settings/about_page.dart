@@ -1,8 +1,43 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// About page with app info.
-class AboutPage extends StatelessWidget {
+class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
+
+  @override
+  State<AboutPage> createState() => _AboutPageState();
+}
+
+class _AboutPageState extends State<AboutPage> {
+  static final Uri _repoUri =
+      Uri.parse('https://github.com/vimers/easy_contact_sync');
+  static final Uri _issuesUri =
+      Uri.parse('https://github.com/vimers/easy_contact_sync/issues');
+
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (!mounted) return;
+    setState(() => _version = info.version);
+  }
+
+  Future<void> _openUrl(Uri uri) async {
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open $uri')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,7 +69,7 @@ class AboutPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'v1.0.0',
+                  _version.isEmpty ? '' : 'v$_version',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -108,6 +143,35 @@ class AboutPage extends StatelessWidget {
 
           const SizedBox(height: 8),
 
+          // Source code & issue reporting
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.code),
+                    title: const Text('Source code'),
+                    subtitle: const Text('github.com/vimers/easy_contact_sync'),
+                    trailing: const Icon(Icons.open_in_new, size: 18),
+                    onTap: () => _openUrl(_repoUri),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.bug_report_outlined),
+                    title: const Text('Report an issue'),
+                    subtitle: const Text(
+                        'Found a bug or have a suggestion? Open an issue on GitHub.'),
+                    trailing: const Icon(Icons.open_in_new, size: 18),
+                    onTap: () => _openUrl(_issuesUri),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
           // Licenses
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -120,7 +184,7 @@ class AboutPage extends StatelessWidget {
                   showLicensePage(
                     context: context,
                     applicationName: 'EasyContactSync',
-                    applicationVersion: '1.0.0',
+                    applicationVersion: _version,
                   );
                 },
               ),
