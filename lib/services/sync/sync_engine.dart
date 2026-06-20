@@ -36,7 +36,7 @@ class SyncEngine {
   Future<SyncResult> sync(Account account) async {
     final password = await _secureStorage.getPassword(account.id!);
     if (password == null) {
-      return SyncResult(status: SyncStatus.failure, errorMessage: 'No stored password for account');
+      return const SyncResult(status: SyncStatus.failure, errorMessage: 'No stored password for account');
     }
 
     try {
@@ -56,7 +56,7 @@ class SyncEngine {
         final abHome = await discovery.discoverAddressbookHome(principalUrl);
         final addressbooks = await discovery.discoverAddressbooks(abHome);
         if (addressbooks.isEmpty) {
-          return SyncResult(status: SyncStatus.failure, errorMessage: 'No addressbooks found');
+          return const SyncResult(status: SyncStatus.failure, errorMessage: 'No addressbooks found');
         }
         addressbookUrl = addressbooks.first.href;
       } catch (_) {

@@ -28,10 +28,10 @@ class ContactComparePage extends StatelessWidget {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
+          const Padding(
+            padding: EdgeInsets.all(12),
             child: Row(
-              children: const [
+              children: [
                 Icon(Icons.sync_problem, color: Colors.orange, size: 20),
                 SizedBox(width: 8),
                 Expanded(

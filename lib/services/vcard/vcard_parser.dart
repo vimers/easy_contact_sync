@@ -103,7 +103,7 @@ class VCardParser {
     // N:LastName;FirstName;MiddleName;Prefix;Suffix
     final parts = values.first.split(';');
     return {
-      'lastName': parts.length > 0 ? parts[0] : '',
+      'lastName': parts.isNotEmpty ? parts[0] : '',
       'firstName': parts.length > 1 ? parts[1] : '',
       'middleName': parts.length > 2 ? parts[2] : '',
       'prefix': parts.length > 3 ? parts[3] : '',

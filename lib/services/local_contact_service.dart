@@ -165,7 +165,7 @@ class LocalContactService {
           : [],
       notes: contact.note != null ? [fc.Note(contact.note!)] : [],
       addresses: contact.addresses.map((a) => fc.Address(
-        '${a.street ?? ''}',
+        a.street ?? '',
         label: _reverseAddressLabel(a.label),
         street: a.street ?? '',
         city: a.city ?? '',
