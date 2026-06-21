@@ -2,6 +2,8 @@
 
 An open-source, cross-platform mobile app (Android + iOS) that synchronizes contacts via the CardDAV protocol (RFC 6352).
 
+📖 **Docs & setup guides:** <https://vimers.github.io/easy_contact_sync/> — including [Sync with Synology Contacts (CardDAV)](https://vimers.github.io/easy_contact_sync/Synology-Contacts.html).
+
 ## Features
 
 - **CardDAV Sync**: Full support for standard CardDAV protocol
