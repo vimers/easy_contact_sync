@@ -10,6 +10,8 @@ const _imgA =
 const _imgB =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
 
+const _urlPhoto = 'https://example.com/alice.jpg'; // non-base64 PHOTO value
+
 Widget _wrap(Widget child) => MaterialApp(home: child);
 
 void main() {
@@ -60,5 +62,23 @@ void main() {
     await tester.tap(find.byType(ContactPhoto).first);
     await tester.pumpAndSettle();
     expect(find.byType(Dialog), findsOneWidget);
+  });
+
+  testWidgets(
+      'treats a non-base64 photo value as no-photo (placeholder, not tappable)',
+      (tester) async {
+    await tester.pumpWidget(_wrap(const ContactComparePage(
+      localContact: Contact(displayName: 'Alice', photo: _imgA),
+      remoteContact: Contact(displayName: 'Alice', photo: _urlPhoto),
+    )));
+    // Card shows because the photos differ.
+    expect(find.text('Photo'), findsOneWidget);
+    // Local side (real photo) renders a ContactPhoto; remote (URL) renders the placeholder.
+    expect(find.byType(ContactPhoto), findsOneWidget);
+    expect(find.byIcon(Icons.person), findsOneWidget);
+    // Tapping the placeholder side (the GestureDetector with null onTap) does not open a dialog.
+    await tester.tap(find.byIcon(Icons.person), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsNothing);
   });
 }

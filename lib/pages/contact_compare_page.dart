@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../models/contact.dart';
@@ -106,12 +108,13 @@ class ContactComparePage extends StatelessWidget {
     required String label,
     required Color color,
   }) {
-    final hasPhoto = photo != null && photo.isNotEmpty;
+    final bytes = ContactPhoto.tryDecode(photo);
+    final hasPhoto = bytes != null;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         GestureDetector(
-          onTap: hasPhoto ? () => _showFullPhoto(context, photo, label) : null,
+          onTap: hasPhoto ? () => _showFullPhoto(context, bytes, label) : null,
           child: hasPhoto
               ? ContactPhoto(
                   base64Photo: photo,
@@ -156,9 +159,7 @@ class ContactComparePage extends StatelessWidget {
   String _initialOf(String name) =>
       name.isNotEmpty ? name[0].toUpperCase() : '?';
 
-  void _showFullPhoto(BuildContext context, String base64Photo, String label) {
-    final bytes = ContactPhoto.tryDecode(base64Photo);
-    if (bytes == null) return;
+  void _showFullPhoto(BuildContext context, Uint8List bytes, String label) {
     showDialog<void>(
       context: context,
       builder: (ctx) => Dialog(
@@ -171,7 +172,11 @@ class ContactComparePage extends StatelessWidget {
               const SizedBox(height: 12),
               GestureDetector(
                 onTap: () => Navigator.of(ctx).pop(),
-                child: Image.memory(bytes),
+                child: Image.memory(
+                  bytes,
+                  errorBuilder: (_, __, ___) =>
+                      const Icon(Icons.broken_image, size: 48),
+                ),
               ),
             ],
           ),
