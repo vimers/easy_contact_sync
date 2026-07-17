@@ -47,13 +47,21 @@ Two units, each with one clear purpose:
      (2) an `errorBuilder` on `Image.memory` for bytes that decode but are not a
      valid image. Either failure renders the letter-avatar fallback.
 
-2. **`ContactComparePage`** — computes whether the photos differ and renders a
-   "Photo" card as the **first row** of the diff list, above the existing
-   `DiffViewerWidget`. The text diff pipeline is untouched.
+2. **`ContactComparePage`** — computes whether the photos differ and builds a
+   "Photo" card, passing it to `DiffViewerWidget` via a new optional `leading`
+   slot so it scrolls as the **first row** of the same list (not pinned above
+   it). The text diff pipeline is untouched.
+
+3. **`DiffViewerWidget`** — gains one backward-compatible optional parameter,
+   `Widget? leading`. When non-null it is rendered as the first item of the
+   diff `ListView` (same scroll, same spacing as the field-diff cards). Its
+   text-diff rendering is unchanged. When `leading` is null the widget behaves
+   exactly as today.
 
 ### What does NOT change
 
-- `DiffEngine`, `computeFieldDiff`, `FieldDiff`, `Contact`, `DiffViewerWidget`.
+- `DiffEngine`, `computeFieldDiff`, `FieldDiff`, `Contact`. `DiffViewerWidget`
+  gains only the optional `leading` slot described above — no other change.
 - The photo is **not** added to `computeFieldDiff`. Rationale: it is binary and
   does not fit the text `FieldDiff` model; rendering it in the page keeps the
   text diff pipeline clean.
@@ -93,6 +101,9 @@ side-by-side avatars are small. Tapping the dialog dismisses it.
   in try/catch and falls back to the letter avatar. The app never crashes on a
   bad photo.
 - **No photo difference.** No card; identical to today.
+- **Photos differ but every text field is identical.** `computeFieldDiff`
+  returns no differing fields, but the `leading` Photo card is non-null, so the
+  list shows just the Photo card — not the "No differences" empty state.
 
 ### Strings
 
@@ -105,11 +116,17 @@ existing compare page, which already hardcodes its banner text and labels.
   - decodes a valid base64 image and shows `Image.memory`;
   - falls back to the letter avatar when photo is `null`, empty, or invalid
     base64 / URL.
+- Widget test for `DiffViewerWidget`:
+  - when `leading` is provided, it renders as the first list item;
+  - when `leading` is null, behavior is unchanged (backward compatible);
+  - when `leading` is provided but no field diffs differ, it still shows the
+    leading card instead of the "No differences" empty state.
 - Widget test for `ContactComparePage`:
   - when `localContact.photo != remoteContact.photo`, the `Photo` card is shown
     (find the `Photo` title and both avatars);
   - when photos are equal, the `Photo` card is **not** shown;
-  - when only one side has a photo, the placeholder is shown on the empty side.
+  - when only one side has a photo, the placeholder is shown on the empty side;
+  - tapping an avatar opens the full-screen view.
 
 Manual verification: run the app, open a contact whose photo differs between
 phone and server (or fabricate one via a test contact), confirm the two avatars
