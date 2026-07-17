@@ -163,22 +163,29 @@ class ContactComparePage extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (ctx) => Dialog(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              GestureDetector(
-                onTap: () => Navigator.of(ctx).pop(),
-                child: Image.memory(
-                  bytes,
-                  errorBuilder: (_, __, ___) =>
-                      const Icon(Icons.broken_image, size: 48),
+        child: GestureDetector(
+          onTap: () => Navigator.of(ctx).pop(),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(ctx).size.width * 0.8,
+                    maxHeight: MediaQuery.of(ctx).size.height * 0.7,
+                  ),
+                  child: Image.memory(
+                    bytes,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.broken_image, size: 48),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

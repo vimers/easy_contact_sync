@@ -62,6 +62,10 @@ void main() {
     await tester.tap(find.byType(ContactPhoto).first);
     await tester.pumpAndSettle();
     expect(find.byType(Dialog), findsOneWidget);
+    expect(
+      find.descendant(of: find.byType(Dialog), matching: find.byType(Image)),
+      findsOneWidget,
+    );
   });
 
   testWidgets(
