@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/contact.dart';
 import '../services/sync/diff_engine.dart';
+import '../widgets/contact_photo.dart';
 import '../widgets/diff_viewer.dart';
 
 /// Read-only side-by-side comparison of a contact's local vs remote fields.
@@ -21,6 +22,9 @@ class ContactComparePage extends StatelessWidget {
     final diffEngine = DiffEngine();
     final fieldDiffs =
         diffEngine.computeFieldDiff(localContact, remoteContact);
+
+    final Widget? photoCard =
+        localContact.photo != remoteContact.photo ? _buildPhotoCard(context) : null;
 
     return Scaffold(
       appBar: AppBar(
@@ -44,8 +48,134 @@ class ContactComparePage extends StatelessWidget {
             ),
           ),
           const Divider(height: 1),
-          Expanded(child: DiffViewerWidget(fieldDiffs: fieldDiffs)),
+          Expanded(
+            child: DiffViewerWidget(fieldDiffs: fieldDiffs, leading: photoCard),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPhotoCard(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Photo',
+              style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _avatarColumn(
+                    context,
+                    photo: localContact.photo,
+                    name: localContact.bestName,
+                    label: 'Local',
+                    color: Colors.blue,
+                  ),
+                ),
+                Icon(Icons.swap_horiz, color: theme.colorScheme.outline),
+                Expanded(
+                  child: _avatarColumn(
+                    context,
+                    photo: remoteContact.photo,
+                    name: remoteContact.bestName,
+                    label: 'Remote',
+                    color: Colors.green,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _avatarColumn(
+    BuildContext context, {
+    required String? photo,
+    required String name,
+    required String label,
+    required Color color,
+  }) {
+    final hasPhoto = photo != null && photo.isNotEmpty;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: hasPhoto ? () => _showFullPhoto(context, photo, label) : null,
+          child: hasPhoto
+              ? ContactPhoto(
+                  base64Photo: photo,
+                  fallbackInitial: _initialOf(name),
+                  radius: 32,
+                )
+              : _noPhotoPlaceholder(),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _noPhotoPlaceholder() {
+    return Container(
+      width: 64,
+      height: 64,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.grey.shade300,
+        border: Border.all(color: Colors.grey.shade400, width: 1.5),
+      ),
+      child: const Icon(Icons.person, color: Colors.grey),
+    );
+  }
+
+  String _initialOf(String name) =>
+      name.isNotEmpty ? name[0].toUpperCase() : '?';
+
+  void _showFullPhoto(BuildContext context, String base64Photo, String label) {
+    final bytes = ContactPhoto.tryDecode(base64Photo);
+    if (bytes == null) return;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: () => Navigator.of(ctx).pop(),
+                child: Image.memory(bytes),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
