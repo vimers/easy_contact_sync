@@ -10,7 +10,13 @@ import 'package:flutter/material.dart';
 /// image. All decode/error handling lives here so callers stay declarative.
 class ContactPhoto extends StatelessWidget {
   final String? base64Photo;
+
+  /// Text shown when there is no decodable photo.
+  ///
+  /// Callers should pass an already-formatted initial (e.g. uppercased first
+  /// letter) — this widget renders it verbatim and does not transform it.
   final String fallbackInitial;
+
   final double radius;
 
   const ContactPhoto({
@@ -47,15 +53,13 @@ class ContactPhoto extends StatelessWidget {
       foregroundColor: theme.colorScheme.onPrimaryContainer,
       child: bytes == null
           ? fallback
-          : ClipOval(
-              child: Image.memory(
-                bytes,
-                width: radius * 2,
-                height: radius * 2,
-                fit: BoxFit.cover,
-                gaplessPlayback: true,
-                errorBuilder: (_, __, ___) => fallback,
-              ),
+          : Image.memory(
+              bytes,
+              width: radius * 2,
+              height: radius * 2,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => fallback,
             ),
     );
   }

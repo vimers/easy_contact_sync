@@ -6,12 +6,15 @@ import 'package:easy_contact_sync/widgets/contact_photo.dart';
 const _validPngBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
+// Valid base64, but the bytes are not a decodable image.
+const _garbageBase64 = 'AAAAAA=='; // 4 zero bytes
+
 Widget _wrap(Widget child) => MaterialApp(home: Scaffold(body: Center(child: child)));
 
 void main() {
   testWidgets('renders the decoded image when photo is valid base64', (tester) async {
     await tester.pumpWidget(_wrap(
-      ContactPhoto(base64Photo: _validPngBase64, fallbackInitial: 'A'),
+      const ContactPhoto(base64Photo: _validPngBase64, fallbackInitial: 'A'),
     ));
     await tester.pump();
     expect(find.byType(Image), findsOneWidget);
@@ -20,7 +23,7 @@ void main() {
 
   testWidgets('falls back to the letter avatar when photo is null', (tester) async {
     await tester.pumpWidget(_wrap(
-      ContactPhoto(base64Photo: null, fallbackInitial: 'A'),
+      const ContactPhoto(base64Photo: null, fallbackInitial: 'A'),
     ));
     expect(find.byType(Image), findsNothing);
     expect(find.text('A'), findsOneWidget);
@@ -28,7 +31,7 @@ void main() {
 
   testWidgets('falls back to the letter avatar when photo is empty', (tester) async {
     await tester.pumpWidget(_wrap(
-      ContactPhoto(base64Photo: '', fallbackInitial: 'A'),
+      const ContactPhoto(base64Photo: '', fallbackInitial: 'A'),
     ));
     expect(find.byType(Image), findsNothing);
     expect(find.text('A'), findsOneWidget);
@@ -37,10 +40,27 @@ void main() {
   testWidgets('falls back to the letter avatar when photo is not base64 (e.g. a URL)',
       (tester) async {
     await tester.pumpWidget(_wrap(
-      ContactPhoto(base64Photo: 'https://example.com/photo.jpg', fallbackInitial: 'A'),
+      const ContactPhoto(
+          base64Photo: 'https://example.com/photo.jpg', fallbackInitial: 'A'),
     ));
     expect(find.byType(Image), findsNothing);
     expect(find.text('A'), findsOneWidget);
+  });
+
+  testWidgets('falls back when bytes are valid base64 but not a decodable image',
+      (tester) async {
+    await tester.pumpWidget(_wrap(
+      const ContactPhoto(base64Photo: _garbageBase64, fallbackInitial: 'A'),
+    ));
+    await tester.pump(); // image decode error fires on the next frame
+    expect(find.text('A'), findsOneWidget);
+  });
+
+  testWidgets('falls back to "?" when fallbackInitial is empty', (tester) async {
+    await tester.pumpWidget(_wrap(
+      const ContactPhoto(base64Photo: null, fallbackInitial: ''),
+    ));
+    expect(find.text('?'), findsOneWidget);
   });
 
   test('tryDecode returns null for null/empty/non-base64 and bytes for valid base64', () {
