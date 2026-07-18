@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/contact.dart';
 import '../providers/contact_sync_status_provider.dart';
+import '../widgets/contact_photo.dart';
 
 /// A single contact row in the contacts list, with an optional sync-status icon.
 class ContactListItem extends StatelessWidget {
@@ -24,13 +25,12 @@ class ContactListItem extends StatelessWidget {
     final statusSpec = _statusSpec(status);
 
     return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: theme.colorScheme.primaryContainer,
-        foregroundColor: theme.colorScheme.onPrimaryContainer,
-        child: Text(
-          contact.bestName.isNotEmpty ? contact.bestName[0].toUpperCase() : '?',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
+      leading: ContactPhoto(
+        base64Photo: contact.photo,
+        fallbackInitial: contact.bestName.isNotEmpty
+            ? contact.bestName[0].toUpperCase()
+            : '?',
+        radius: 20,
       ),
       title: Text(
         contact.bestName,

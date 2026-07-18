@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/contact.dart';
 import '../providers/contact_sync_status_provider.dart';
+import '../widgets/contact_photo.dart';
 import '../providers/contacts_provider.dart';
 import '../providers/accounts_provider.dart';
 import '../providers/sync_provider.dart';
@@ -41,14 +42,12 @@ class ContactDetailPage extends ConsumerWidget {
             Center(
               child: Column(
                 children: [
-                  CircleAvatar(
+                  ContactPhoto(
+                    base64Photo: contact.photo,
+                    fallbackInitial: contact.bestName.isNotEmpty
+                        ? contact.bestName[0].toUpperCase()
+                        : '?',
                     radius: 48,
-                    backgroundColor: theme.colorScheme.primaryContainer,
-                    foregroundColor: theme.colorScheme.onPrimaryContainer,
-                    child: Text(
-                      contact.bestName.isNotEmpty ? contact.bestName[0].toUpperCase() : '?',
-                      style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-                    ),
                   ),
                   const SizedBox(height: 12),
                   Text(contact.bestName, style: theme.textTheme.headlineSmall),
