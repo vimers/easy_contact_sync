@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_contacts/flutter_contacts.dart' as fc;
 import '../models/contact.dart';
 
@@ -52,7 +53,7 @@ class LocalContactService {
     if (!await _ensurePermission()) {
       throw Exception('Write contact permission denied');
     }
-    final fcContact = _toFlutterContact(contact);
+    final fcContact = toFlutterContact(contact);
     final created = await fc.FlutterContacts.insertContact(fcContact);
     return _fromFlutterContact(created);
   }
@@ -68,7 +69,7 @@ class LocalContactService {
     final existing = await fc.FlutterContacts.getContact(contact.uid!);
     if (existing == null) throw Exception('Local contact not found: ${contact.uid}');
 
-    final updated = _mergeIntoFlutterContact(existing, contact);
+    final updated = mergeIntoFlutterContact(existing, contact);
     final saved = await fc.FlutterContacts.updateContact(updated);
     return _fromFlutterContact(saved);
   }
@@ -143,8 +144,9 @@ class LocalContactService {
     );
   }
 
-  fc.Contact _toFlutterContact(Contact contact) {
-    return fc.Contact(
+  @visibleForTesting
+  fc.Contact toFlutterContact(Contact contact) {
+    final fcContact = fc.Contact(
       name: fc.Name(
         first: contact.firstName ?? '',
         last: contact.lastName ?? '',
@@ -174,9 +176,15 @@ class LocalContactService {
         country: a.country ?? '',
       )).toList(),
     );
+    // flutter_contacts stores the photo as raw bytes, not base64 — decode it
+    // so a contact pulled from CardDAV keeps its photo on the device.
+    final photo = _decodePhoto(contact.photo);
+    if (photo != null) fcContact.photo = photo;
+    return fcContact;
   }
 
-  fc.Contact _mergeIntoFlutterContact(fc.Contact existing, Contact contact) {
+  @visibleForTesting
+  fc.Contact mergeIntoFlutterContact(fc.Contact existing, Contact contact) {
     existing.name.first = contact.firstName ?? '';
     existing.name.last = contact.lastName ?? '';
     existing.phones.clear();
@@ -198,7 +206,26 @@ class LocalContactService {
     }
     existing.notes.clear();
     if (contact.note != null) existing.notes.add(fc.Note(contact.note!));
+    // Remote-wins resolution must carry the photo too, otherwise resolving a
+    // conflict drops the server-side photo. Only overwrite when the remote
+    // actually has one, so a photo-less remote never clobbers a local photo.
+    final photo = _decodePhoto(contact.photo);
+    if (photo != null) existing.photo = photo;
     return existing;
+  }
+
+  /// Decode a Contact's base64 photo into the raw bytes flutter_contacts
+  /// expects. Returns null when absent or not valid base64 (e.g. a URL PHOTO).
+  @visibleForTesting
+  Uint8List? decodePhoto(String? base64Photo) => _decodePhoto(base64Photo);
+
+  static Uint8List? _decodePhoto(String? base64Photo) {
+    if (base64Photo == null || base64Photo.isEmpty) return null;
+    try {
+      return base64Decode(base64Photo);
+    } catch (_) {
+      return null;
+    }
   }
 
   // ── Label mappers ──
