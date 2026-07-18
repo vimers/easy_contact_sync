@@ -5,22 +5,35 @@ import '../models/conflict_item.dart';
 class DiffViewerWidget extends StatelessWidget {
   final List<FieldDiff> fieldDiffs;
 
-  const DiffViewerWidget({super.key, required this.fieldDiffs});
+  /// Optional widget rendered as the first item of the diff list (e.g. the
+  /// photo-diff card). Null = behave as before.
+  final Widget? leading;
+
+  const DiffViewerWidget({
+    super.key,
+    required this.fieldDiffs,
+    this.leading,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final diffs = fieldDiffs.where((d) => d.hasDifference).toList();
 
-    if (diffs.isEmpty) {
+    if (diffs.isEmpty && leading == null) {
       return const Center(child: Text('No differences'));
     }
 
+    final leadingCount = leading != null ? 1 : 0;
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: diffs.length,
+      itemCount: diffs.length + leadingCount,
       itemBuilder: (context, index) {
-        final diff = diffs[index];
+        if (leading != null && index == 0) {
+          // Caller passes a Card with the same bottom margin as the field cards.
+          return leading!;
+        }
+        final diff = diffs[index - leadingCount];
         return Card(
           margin: const EdgeInsets.only(bottom: 8),
           child: Padding(
