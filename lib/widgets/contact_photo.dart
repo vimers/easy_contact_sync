@@ -45,7 +45,7 @@ class ContactPhoto extends StatelessWidget {
     final initial = fallbackInitial.isEmpty ? '?' : fallbackInitial;
     final fallback = Text(
       initial,
-      style: const TextStyle(fontWeight: FontWeight.bold),
+      style: TextStyle(fontWeight: FontWeight.bold, fontSize: radius * 0.8),
     );
     return CircleAvatar(
       radius: radius,

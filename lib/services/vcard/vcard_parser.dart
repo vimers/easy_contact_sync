@@ -40,7 +40,7 @@ class VCardParser {
       addresses: _extractAddresses(lines),
       birthday: _parseDate(_first(properties['BDAY'])),
       categories: _extractCategories(properties['CATEGORIES']),
-      photo: _first(properties['PHOTO']),
+      photo: _normalizePhoto(_first(properties['PHOTO'])),
       revision: _parseDate(_first(properties['REV'])),
     );
   }
@@ -96,6 +96,19 @@ class VCardParser {
   String? _first(List<String>? values) {
     if (values == null || values.isEmpty) return null;
     return values.first;
+  }
+
+  /// Strip a vCard 4.0 data-URL prefix from a PHOTO value, returning plain
+  /// base64. Servers that emit `PHOTO;data:image/jpeg;base64,<b64>` trip the
+  /// colon-split above (the value then comes through as
+  /// `image/jpeg;base64,<b64>`); cutting at ";base64," recovers the bytes.
+  /// Safe because a base64 body never contains ';' or ','.
+  String? _normalizePhoto(String? raw) {
+    if (raw == null) return null;
+    const marker = ';base64,';
+    final idx = raw.indexOf(marker);
+    if (idx >= 0) return raw.substring(idx + marker.length);
+    return raw;
   }
 
   Map<String, String>? _extractN(List<String>? values) {
