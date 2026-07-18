@@ -43,7 +43,18 @@ jobs:
         run: flutter pub get
 
       - name: Build release APK
-        run: flutter build apk --release
+        # Derive build-name / build-number from the git tag (e.g. v1.1.0 ->
+        # versionName 1.1.0, versionCode 10100) so the tag is the single source
+        # of truth. This avoids shipping an APK whose internal version lags
+        # behind the tag when pubspec.yaml isn't bumped.
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          BUILD_NUMBER=$(( MAJOR * 10000 + MINOR * 100 + PATCH ))
+          echo "Building APK version $VERSION (versionCode $BUILD_NUMBER)"
+          flutter build apk --release \
+            --build-name="$VERSION" \
+            --build-number="$BUILD_NUMBER"
 
       - name: Rename APK to include the tag
         run: |
