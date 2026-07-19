@@ -72,12 +72,18 @@ class LocalContactService {
     // the contact was fetched with withAccounts. Without this, every
     // remoteNewer refresh and conflict remote-wins resolution crashed, so
     // photos (and any remote→local update) never landed on the device.
-    final existing = await fc.FlutterContacts.getContact(contact.uid!, withAccounts: true);
+    final existing = await fc.FlutterContacts.getContact(contact.uid!, withAccounts: true, withPhoto: true);
     if (existing == null) throw Exception('Local contact not found: ${contact.uid}');
 
     final updated = mergeIntoFlutterContact(existing, contact);
-    final saved = await fc.FlutterContacts.updateContact(updated);
-    return _fromFlutterContact(saved);
+    await fc.FlutterContacts.updateContact(updated);
+    // Re-read the actually-stored contact. The device address book may re-encode
+    // fields (notably photo) on write, so the value passed to updateContact is
+    // not byte-identical to what a future sync reads back. Returning the re-read
+    // copy lets syncMeta anchor on the real stored hash, so the next sync does
+    // not see a phantom local change and re-conflict.
+    final stored = await fc.FlutterContacts.getContact(contact.uid!, withAccounts: true, withPhoto: true);
+    return _fromFlutterContact(stored ?? updated);
   }
 
   /// Delete a local contact.
@@ -146,7 +152,9 @@ class LocalContactService {
       birthday: fcContact.events.isNotEmpty
           ? _parseBirthday(fcContact.events.first)
           : null,
-      photo: fcContact.photo != null ? base64Encode(fcContact.photo!) : null,
+      photo: fcContact.photo != null
+          ? base64Encode(fcContact.photo!)
+          : (fcContact.thumbnail != null ? base64Encode(fcContact.thumbnail!) : null),
     );
   }
 
@@ -172,6 +180,14 @@ class LocalContactService {
             )]
           : [],
       notes: contact.note != null ? [fc.Note(contact.note!)] : [],
+      events: contact.birthday != null
+          ? [fc.Event(
+              year: contact.birthday!.year,
+              month: contact.birthday!.month,
+              day: contact.birthday!.day,
+              label: fc.EventLabel.birthday,
+            )]
+          : [],
       addresses: contact.addresses.map((a) => fc.Address(
         a.street ?? '',
         label: _reverseAddressLabel(a.label),
@@ -212,6 +228,18 @@ class LocalContactService {
     }
     existing.notes.clear();
     if (contact.note != null) existing.notes.add(fc.Note(contact.note!));
+    // Birthday lives in `events` on flutter_contacts — carry it through so a
+    // remote birthday isn't dropped on update (which would re-conflict forever
+    // since contentHash includes birthday).
+    existing.events.clear();
+    if (contact.birthday != null) {
+      existing.events.add(fc.Event(
+        year: contact.birthday!.year,
+        month: contact.birthday!.month,
+        day: contact.birthday!.day,
+        label: fc.EventLabel.birthday,
+      ));
+    }
     // Remote-wins resolution must carry the photo too, otherwise resolving a
     // conflict drops the server-side photo. Only overwrite when the remote
     // actually has one, so a photo-less remote never clobbers a local photo.
