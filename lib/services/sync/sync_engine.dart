@@ -70,6 +70,23 @@ class SyncEngine {
       // got re-pushed every sync. Diff against the true full state instead.)
       final remoteContacts = await operations.listContacts(addressbookUrl);
 
+      // TEMP diagnostic (drop once photo sync is confirmed on-device):
+      // characterize the photo payload the server actually sends — inline
+      // base64 (writeable directly) vs a URL (needs fetching) vs none. One
+      // summary line per sync; read via `adb logcat -s flutter | grep photo-diag`.
+      final photoKinds = <String, int>{};
+      for (final c in remoteContacts) {
+        final p = c.photo;
+        final kind = p == null
+            ? 'none'
+            : (p.startsWith('http://') || p.startsWith('https://'))
+                ? 'url'
+                : 'base64';
+        photoKinds[kind] = (photoKinds[kind] ?? 0) + 1;
+      }
+      // ignore: avoid_print
+      print('[sync] photo-diag: remote=${remoteContacts.length} kinds=$photoKinds');
+
       // 3. Get local contacts + the local↔remote uid map.
       final localContacts = await _localContacts.getAllContacts();
       final uidMap = await _db.getUidMapForAccount(account.id!);
