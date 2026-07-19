@@ -82,9 +82,11 @@ class Contact {
   String get contentHash {
     final sortedPhones = phones.map((p) => '${p.number}:${p.label}').toList()..sort();
     final sortedEmails = emails.map((e) => '${e.address}:${e.label}').toList()..sort();
-    final sortedCategories = categories.toList()..sort();
+    // NOTE: `categories` is intentionally excluded — it is not round-tripped
+    // through flutter_contacts (Android groups ≠ vCard CATEGORIES), so
+    // including it made any categorized remote contact re-conflict forever.
+    // `birthday` IS round-tripped via events in the mappers.
     final parts = [
-      displayName ?? '',
       firstName ?? '',
       lastName ?? '',
       sortedPhones.join(','),
@@ -93,8 +95,13 @@ class Contact {
       title ?? '',
       note ?? '',
       birthday?.toIso8601String() ?? '',
-      sortedCategories.join(','),
-      photo?.length.toString() ?? '',
+      // photo intentionally excluded from the hash: flutter_contacts 1.1.9+2
+      // writes the photo to the raw-level DisplayPhoto asset but reads it back
+      // from the contact-level DISPLAY_PHOTO, which Android does not aggregate
+      // back — so the stored photo reads as null and any photo-bearing contact
+      // re-conflicts forever. Photo is still synced for display (see
+      // _fromFlutterContact thumbnail fallback); it just no longer gates
+      // conflict detection.
     ];
     return parts.join('|||');
   }
