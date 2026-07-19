@@ -137,14 +137,24 @@ class DiffEngine {
     }
     final localChanged = local.contentHash != prev.lastSyncHash;
     final remoteChanged = remote.etag != prev.etag;
-    final type = (localChanged && remoteChanged)
-        ? DiffType.conflict
-        : localChanged
-            ? DiffType.localOnly
-            : remoteChanged
-                ? DiffType.remoteOnly
-                : DiffType.identical;
-    return DiffResult(uid: ruid, type: type, localContact: local, remoteContact: remote);
+    // When the user has NOT touched local since the last sync (localChanged is
+    // false), the local copy is either stale or simply behind remote — refresh
+    // it from remote. This collapses two cases into remoteNewer:
+    //   • a genuine remote edit (remoteChanged), or
+    //   • "stale anchor" divergence: neither side looks changed relative to its
+    //     anchor, yet the contents differ — e.g. an earlier (pre-photo-fix)
+    //     pull dropped the photo, anchoring on a photo-less hash. Previously
+    //     this fell through to `identical`, so the photo was never re-written.
+    // Overwriting is safe: the user hasn't edited local since the last sync, so
+    // nothing local is lost. Only a concurrent change on BOTH sides is a real
+    // conflict.
+    if (localChanged && remoteChanged) {
+      return DiffResult(uid: ruid, type: DiffType.conflict, localContact: local, remoteContact: remote);
+    }
+    if (localChanged) {
+      return DiffResult(uid: ruid, type: DiffType.localOnly, localContact: local, remoteContact: remote);
+    }
+    return DiffResult(uid: ruid, type: DiffType.remoteNewer, localContact: local, remoteContact: remote);
   }
 
   /// Compute field-level diff between two contacts.
