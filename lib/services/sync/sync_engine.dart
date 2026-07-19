@@ -157,6 +157,26 @@ class SyncEngine {
             }
             break;
 
+          case DiffType.remoteNewer:
+            // Paired contact whose untouched local copy must be refreshed from
+            // remote — either a genuine remote edit, or stale-anchor divergence
+            // (e.g. a photo dropped by an earlier, pre-fix pull). Update the
+            // existing local contact IN PLACE: keep its device id + uid linkage
+            // and let mergeIntoFlutterContact carry the remote fields + photo.
+            // Must NOT createContact here — that would duplicate the contact.
+            final localUid = diff.localContact?.uid;
+            if (diff.remoteContact != null && localUid != null) {
+              final refreshed = await _localContacts.updateContact(
+                diff.remoteContact!.copyWith(uid: localUid),
+              );
+              pulled++;
+              // Re-anchor on the refreshed local hash (the address book may
+              // reformat on update), same rationale as the remoteOnly case.
+              await _db.upsertSyncMeta(
+                account.id!, diff.uid, diff.remoteContact!.etag, refreshed.contentHash);
+            }
+            break;
+
           case DiffType.localDeleted:
             // Inferred local deletion — do NOT auto-delete from the server. A
             // partial remote listing must never trigger silent deletion; route

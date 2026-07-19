@@ -30,6 +30,12 @@ enum DiffType {
   remoteDeleted, // was synced, now missing remotely
   conflict, // both sides modified
   identical, // no change
+  // Paired contact whose local copy is untouched since the last sync but whose
+  // content still differs from remote — either a genuine remote edit, or
+  // "stale anchor" divergence where an earlier (buggy) pull dropped a field
+  // (e.g. the photo before it was propagated). The engine refreshes the local
+  // copy from remote in place; it must NOT createContact (that duplicates).
+  remoteNewer,
 }
 
 /// A single diff result from comparing local vs remote.
