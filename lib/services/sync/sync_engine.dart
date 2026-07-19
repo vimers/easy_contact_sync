@@ -322,6 +322,12 @@ class SyncEngine {
 
     for (final conflict in resolvedConflicts) {
       final resolved = _conflictResolver.getChosenContact(conflict);
+      // The local contact as actually stored on the device. syncMeta must
+      // anchor its content hash on THIS copy (not the remote one): the device
+      // address book may reformat fields (e.g. photo) on write, so only the
+      // local hash matches what future syncs compare against. Mirrors the
+      // diff-phase note about anchoring on the local hash.
+      Contact localAnchor;
       if (resolved.source == Source.local) {
         // This server rejects PUT-to-update with 409, so replace the remote
         // contact via delete + create, writing the local field values with the
@@ -334,23 +340,28 @@ class SyncEngine {
             remote.href != null ? await operations.fetchEtag(remote.href!) : null;
         await operations.deleteContact(remote.copyWith(etag: freshEtag));
         await operations.createContact(addressbookUrl, local.copyWith(uid: remote.uid));
+        localAnchor = local;
       } else {
         // Pull remote version to the local contact (keep the local id).
         final remote = resolved.contact as Contact;
         if (conflict.localContact.uid != null) {
-          await _localContacts.updateContact(remote.copyWith(uid: conflict.localContact.uid));
+          localAnchor =
+              await _localContacts.updateContact(remote.copyWith(uid: conflict.localContact.uid));
         } else {
-          await _localContacts.createContact(remote);
+          localAnchor = await _localContacts.createContact(remote);
         }
       }
 
-      // Update sync metadata
+      // Update sync metadata. etag tracks the remote version; the hash MUST be
+      // the local anchor's (the contact as actually stored on-device) because
+      // the address book may reformat fields on write — otherwise the next sync
+      // sees the local copy as changed and re-conflicts forever.
       final contact = resolved.contact as Contact;
       await _db.upsertSyncMeta(
         account.id!,
         conflict.uid,
         contact.etag,
-        contact.contentHash,
+        localAnchor.contentHash,
       );
 
       // Maintain the local↔remote uid linkage so this pair stops re-conflicting.
