@@ -66,7 +66,13 @@ class LocalContactService {
       throw Exception('Write contact permission denied');
     }
 
-    final existing = await fc.FlutterContacts.getContact(contact.uid!);
+    // Fetch with `withAccounts: true` so the contact carries a rawId. On
+    // Android, updateContact throws "Cannot update contact without raw ID"
+    // unless accounts[*].rawId is populated — and rawId only comes back when
+    // the contact was fetched with withAccounts. Without this, every
+    // remoteNewer refresh and conflict remote-wins resolution crashed, so
+    // photos (and any remote→local update) never landed on the device.
+    final existing = await fc.FlutterContacts.getContact(contact.uid!, withAccounts: true);
     if (existing == null) throw Exception('Local contact not found: ${contact.uid}');
 
     final updated = mergeIntoFlutterContact(existing, contact);
